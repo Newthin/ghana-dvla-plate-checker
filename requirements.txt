@@ -6,3 +6,4 @@ ultralytics
 pillow
 pandas
 python-dateutil
+openpyxl
