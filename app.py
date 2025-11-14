@@ -33,22 +33,34 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
-# Install button (appears when PWA is installable)
+# === PWA: INSTALL BUTTON (DEBUG) ===
 st.markdown("""
-<button id="installBtn" style="display:none; padding:12px 20px; background:#1E90FF; color:white; border:none; border-radius:8px; font-weight:bold; margin:10px 0;" onclick="installApp()">
+<button id="installBtn" style="padding:12px 20px; background:#1E90FF; color:white; border:none; border-radius:8px; font-weight:bold; margin:10px 0;" onclick="installApp()">
   Install DVLA Scanner
 </button>
 <script>
   let deferredPrompt;
   window.addEventListener('beforeinstallprompt', (e) => {
+    console.log('PWA installable!');
     e.preventDefault();
     deferredPrompt = e;
     document.getElementById("installBtn").style.display = "block";
   });
+
   function installApp() {
-    deferredPrompt.prompt();
-    document.getElementById("installBtn").style.display = "none";
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => {
+        document.getElementById("installBtn").style.display = "none";
+      });
+    } else {
+      alert("PWA not ready. Try hard refresh.");
+    }
   }
+
+  // Debug: Check if files load
+  fetch('/manifest.json').then(r => console.log('manifest:', r.ok));
+  fetch('/icon-192.png').then(r => console.log('icon:', r.ok));
 </script>
 """, unsafe_allow_html=True)
 
