@@ -83,7 +83,7 @@ def clean_ghana_plate(ocr_text: str) -> str | None:
         text = text[2:]
 
     # 3. Remove leading O (circle logo)
-    if text.startswith('O'):
+    if text.startswith(('O', '0')):
         text = text[1:]
 
     # 4. Standard formats
