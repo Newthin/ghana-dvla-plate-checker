@@ -67,22 +67,24 @@ def load_ocr():
 # =====================
 def clean_ghana_plate(ocr_text: str) -> str | None:
     """
-    Removes the 'GH' badge, normalises spaces/dashes and returns a
-    correctly formatted Ghana plate string.
-    Supports both front-plate (GR 7263-18) and rear-plate (GE 351-19) layouts.
+    Removes the 'GH' badge, the stray 'O' (circle logo), normalises spaces/dashes
+    and returns a correctly formatted Ghana plate string.
     """
     if not ocr_text:
         return None
 
-    # 1. Normalise
-    text = ocr_text.upper().strip()
-    text = re.sub(r'[^A-Z0-9]', '', text)          # keep only alphanum
+    # 1. Normalise – keep only letters & digits
+    text = re.sub(r'[^A-Za-z0-9]', '', ocr_text.upper())
 
-    # 2. Strip leading GH (badge)
+    # 2. Remove leading GH (badge)
     if text.startswith('GH'):
         text = text[2:]
 
-    # 3. ---- Standard formats ----
+    # 3. **NEW** – Remove a stray leading "O" (the circle logo)
+    if text.startswith('O'):
+        text = text[1:]
+
+    # 4. Standard formats
     #   a) XX NNNN-YY   → e.g. GR726318
     m = re.match(r'^([A-Z]{2})(\d{4})(\d{2})$', text)
     if m:
@@ -101,13 +103,13 @@ def clean_ghana_plate(ocr_text: str) -> str | None:
         code, num = m.groups()
         return f"{code} {num}"
 
-    # 4. Fallback – try to salvage something usable
+    # 5. Fallback
     m = re.match(r'^([A-Z]{2})(\d+)', text)
     if m and len(m.group(2)) >= 3:
         region, num = m.groups()
-        if len(num) == 6:               # 123424 → 1234-24
+        if len(num) == 6:
             return f"{region} {num[:4]}-{num[4:]}"
-        if len(num) == 5:               # 12319  → 123-19
+        if len(num) == 5:
             return f"{region} {num[:3]}-{num[3:]}"
         return f"{region} {num}"
 
