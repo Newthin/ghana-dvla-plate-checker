@@ -3,10 +3,9 @@ import cv2
 import numpy as np
 import easyocr
 from datetime import datetime
-from PIL import Image
 from ultralytics import YOLO
 import pandas as pd
-import re                                 # <-- NEW: for cleaning regex
+import re
 
 # =====================
 # LOAD DATABASE FROM EXCEL
@@ -63,35 +62,38 @@ def load_ocr():
         return None
 
 # =====================
-# NEW: CLEAN GHANA PLATE TEXT
+# CLEAN GHANA PLATE TEXT (FIXES GH + O)
 # =====================
 def clean_ghana_plate(ocr_text: str) -> str | None:
     """
-    Removes the 'GH' badge, the stray 'O' (circle logo), normalises spaces/dashes
-    and returns a correctly formatted Ghana plate string.
+    Removes:
+    - 'GH' badge
+    - Stray 'O' from circle logo
+    - Normalises spaces/dashes
+    Supports both front (GR 7263-18) and rear (GE 351-19) plates.
     """
     if not ocr_text:
         return None
 
-    # 1. Normalise – keep only letters & digits
+    # 1. Keep only letters and digits
     text = re.sub(r'[^A-Za-z0-9]', '', ocr_text.upper())
 
     # 2. Remove leading GH (badge)
     if text.startswith('GH'):
         text = text[2:]
 
-    # 3. **NEW** – Remove a stray leading "O" (the circle logo)
+    # 3. Remove leading O (circle logo)
     if text.startswith('O'):
         text = text[1:]
 
     # 4. Standard formats
-    #   a) XX NNNN-YY   → e.g. GR726318
+    #   a) XX NNNN-YY → e.g. GR726318
     m = re.match(r'^([A-Z]{2})(\d{4})(\d{2})$', text)
     if m:
         region, num, year = m.groups()
         return f"{region} {num}-{year}"
 
-    #   b) XX NNN-YY    → e.g. GE35119
+    #   b) XX NNN-YY → e.g. GE35119
     m = re.match(r'^([A-Z]{2})(\d{3})(\d{2})$', text)
     if m:
         region, num, year = m.groups()
@@ -130,7 +132,6 @@ def detect_plate(image):
         best_box = results[0].boxes[0]
         x1, y1, x2, y2 = map(int, best_box.xyxy[0].tolist())
 
-        # Draw detection box for preview
         debug_img = image.copy()
         cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
         st.image(debug_img, channels="BGR", caption="Detection Preview", use_container_width=True)
@@ -138,7 +139,6 @@ def detect_plate(image):
         return image[y1:y2, x1:x2]
 
     return None
-
 
 def read_plate(plate_img):
     reader = load_ocr()
@@ -148,29 +148,24 @@ def read_plate(plate_img):
     try:
         gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # Optional contrast boost
         thresh = cv2.equalizeHist(thresh)
 
         results = reader.readtext(thresh, detail=0, paragraph=False)
         raw_text = " ".join(results).strip()
 
-        # ---- DEBUG (remove later) ----
+        # DEBUG: Remove these lines in production
         st.write(f"**Raw OCR:** `{raw_text}`")
-
         cleaned = clean_ghana_plate(raw_text)
-
         if cleaned:
             st.write(f"**Cleaned Plate:** `{cleaned}`")
-            return cleaned
         else:
             st.warning("Could not parse plate format")
-            return None
+
+        return cleaned
 
     except Exception as e:
         st.error(f"OCR Error: {str(e)}")
         return None
-
 
 # =====================
 # WEBCAM FUNCTIONS
@@ -189,7 +184,6 @@ def capture_frame(cap):
         return frame
     return None
 
-
 # =====================
 # STREAMLIT UI
 # =====================
@@ -202,10 +196,11 @@ user_type = st.radio("Login As:", ["DVLA Officer", "Police Officer"], horizontal
 
 tab1, tab2, tab3 = st.tabs(["Live Camera", "Upload Image", "Manual Check"])
 
-# ------------------- TAB 1 : LIVE CAMERA -------------------
+# ------------------- TAB 1: LIVE CAMERA -------------------
 with tab1:
     st.subheader("Live Camera Feed")
 
+    # Initialize session state safely
     if 'webcam_active' not in st.session_state:
         st.session_state.webcam_active = False
     if 'cap' not in st.session_state:
@@ -244,7 +239,6 @@ with tab1:
                             plate_text = read_plate(plate_img)
 
                             if plate_text:
-                                plate_text = plate_text.upper()
                                 st.success(f"Detected Plate: **{plate_text}**")
                                 st.image(plate_img, caption="Detected License Plate", use_container_width=True)
 
@@ -289,7 +283,7 @@ with tab1:
                             st.error("No license plate detected")
                 break
 
-# ------------------- TAB 2 : UPLOAD IMAGE -------------------
+# ------------------- TAB 2: UPLOAD IMAGE -------------------
 with tab2:
     st.subheader("Upload Vehicle Image")
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png", "jpeg"])
@@ -311,7 +305,6 @@ with tab2:
                         plate_text = read_plate(plate_img)
 
                     if plate_text:
-                        plate_text = plate_text.upper()
                         st.success(f"Detected Plate: **{plate_text}**")
                         st.image(plate_img, caption="Detected License Plate", use_container_width=True)
 
@@ -355,10 +348,10 @@ with tab2:
                 else:
                     st.error("No license plate detected")
 
-# ------------------- TAB 3 : MANUAL CHECK -------------------
+# ------------------- TAB 3: MANUAL CHECK -------------------
 with tab3:
     st.subheader("Manual Plate Check")
-    plate_input = st.text_input("Enter Plate Number (e.g. GA4051-24):").upper()
+    plate_input = st.text_input("Enter Plate Number (e.g. GE 351-19):").upper()
     if plate_input:
         plate_data = DUMMY_DB.get(plate_input, None)
         if plate_data:
