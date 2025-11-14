@@ -1,15 +1,9 @@
 streamlit==1.51.0
-
-# Force correct OpenCV
 opencv-python-headless==4.8.1.78
-opencv-python==0.0.0  # block full opencv
-
 numpy
 pillow
 pandas
 python-dateutil
 openpyxl
-
-# These two packages pull opencv-python, so place them AFTER blocking
 easyocr
 ultralytics
