@@ -1,6 +1,20 @@
 import streamlit as st
+import cv2
+import numpy as np
+import easyocr
+from datetime import datetime
+from ultralytics import YOLO
+import pandas as pd
+import re
 
-# === PWA: ENABLE INSTALL + CAMERA + ZOOM ===
+# === PWA: FULL SUPPORT (Manifest, Icons, Service Worker, Install Button) ===
+st.set_page_config(
+    page_title="DVLA Scan",
+    page_icon="icon-192.png",
+    layout="wide",
+    menu_items=None
+)
+
 st.markdown("""
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon-192.png" type="image/png">
@@ -8,7 +22,7 @@ st.markdown("""
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 """, unsafe_allow_html=True)
 
-# Optional: Force PWA mode
+# Register service worker
 st.markdown("""
 <script>
   if ('serviceWorker' in navigator) {
@@ -19,13 +33,35 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
-import cv2
-import numpy as np
-import easyocr
-from datetime import datetime
-from ultralytics import YOLO
-import pandas as pd
-import re
+# Install button (appears when PWA is installable)
+st.markdown("""
+<button id="installBtn" style="display:none; padding:12px 20px; background:#1E90FF; color:white; border:none; border-radius:8px; font-weight:bold; margin:10px 0;" onclick="installApp()">
+  Install DVLA Scanner
+</button>
+<script>
+  let deferredPrompt;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    document.getElementById("installBtn").style.display = "block";
+  });
+  function installApp() {
+    deferredPrompt.prompt();
+    document.getElementById("installBtn").style.display = "none";
+  }
+</script>
+""", unsafe_allow_html=True)
+
+# =====================
+# ZOOMABLE IMAGE FUNCTION
+# =====================
+def zoomable_image(image, caption="", zoom=True):
+    """Show image with click-to-zoom (expander)"""
+    if zoom:
+        with st.expander(f"Zoom: {caption}", expanded=False):
+            st.image(image, use_container_width=True, channels="BGR")
+    else:
+        st.image(image, caption=caption, use_container_width=True, channels="BGR")
 
 # =====================
 # LOAD DATABASE FROM EXCEL
@@ -82,50 +118,28 @@ def load_ocr():
         return None
 
 # =====================
-# CLEAN GHANA PLATE TEXT (FIXES GH + O)
+# CLEAN GHANA PLATE TEXT (FIXES GH + O/0)
 # =====================
 def clean_ghana_plate(ocr_text: str) -> str | None:
-    """
-    Removes:
-    - 'GH' badge
-    - Stray 'O' from circle logo
-    - Normalises spaces/dashes
-    Supports both front (GR 7263-18) and rear (GE 351-19) plates.
-    """
     if not ocr_text:
         return None
-
-    # 1. Keep only letters and digits
     text = re.sub(r'[^A-Za-z0-9]', '', ocr_text.upper())
-
-    # 2. Remove leading GH (badge)
     if text.startswith('GH'):
         text = text[2:]
-
-    # 3. Remove leading O (circle logo)
     if text.startswith(('O', '0')):
         text = text[1:]
-
-    # 4. Standard formats
-    #   a) XX NNNN-YY → e.g. GR726318
     m = re.match(r'^([A-Z]{2})(\d{4})(\d{2})$', text)
     if m:
         region, num, year = m.groups()
         return f"{region} {num}-{year}"
-
-    #   b) XX NNN-YY → e.g. GE35119
     m = re.match(r'^([A-Z]{2})(\d{3})(\d{2})$', text)
     if m:
         region, num, year = m.groups()
         return f"{region} {num}-{year}"
-
-    #   c) Government / Consular: GX NNNN
     m = re.match(r'^(G[XC])(\d{4})$', text)
     if m:
         code, num = m.groups()
         return f"{code} {num}"
-
-    # 5. Fallback
     m = re.match(r'^([A-Z]{2})(\d+)', text)
     if m and len(m.group(2)) >= 3:
         region, num = m.groups()
@@ -134,7 +148,6 @@ def clean_ghana_plate(ocr_text: str) -> str | None:
         if len(num) == 5:
             return f"{region} {num[:3]}-{num[3:]}"
         return f"{region} {num}"
-
     return None
 
 # =====================
@@ -144,104 +157,69 @@ def detect_plate(image):
     model = load_yolo()
     if model is None:
         return None
-
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = model(image_rgb, conf=0.5)
-
     if len(results[0].boxes) > 0:
         best_box = results[0].boxes[0]
         x1, y1, x2, y2 = map(int, best_box.xyxy[0].tolist())
-
         debug_img = image.copy()
-        cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 3)
         st.image(debug_img, channels="BGR", caption="Detection Preview", use_container_width=True)
-
         return image[y1:y2, x1:x2]
-
     return None
 
 def read_plate(plate_img):
     reader = load_ocr()
     if reader is None:
         return None
-
     try:
         gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         thresh = cv2.equalizeHist(thresh)
-
         results = reader.readtext(thresh, detail=0, paragraph=False)
         raw_text = " ".join(results).strip()
 
-        # DEBUG: Remove these lines in production
-        st.write(f"**Raw OCR:** `{raw_text}`")
+        # Optional: Remove in production
+        # st.write(f"**Raw OCR:** `{raw_text}`")
         cleaned = clean_ghana_plate(raw_text)
         if cleaned:
-            st.write(f"**Cleaned Plate:** `{cleaned}`")
+            # st.write(f"**Cleaned Plate:** `{cleaned}`")
+            return cleaned
         else:
             st.warning("Could not parse plate format")
-
-        return cleaned
-
+            return None
     except Exception as e:
         st.error(f"OCR Error: {str(e)}")
         return None
 
 # =====================
-# WEBCAM FUNCTIONS
-# =====================
-def start_webcam():
-    cap = cv2.VideoCapture(0)
-    return cap
-
-def stop_webcam(cap):
-    if cap is not None:
-        cap.release()
-
-def capture_frame(cap):
-    ret, frame = cap.read()
-    if ret:
-        return frame
-    return None
-
-# =====================
 # STREAMLIT UI
 # =====================
-st.set_page_config(page_title="DVLA Plate Check", layout="wide", page_icon="car")
-
 st.title("Ghana DVLA & Police Plate Verification")
 st.markdown("---")
 
 user_type = st.radio("Login As:", ["DVLA Officer", "Police Officer"], horizontal=True)
 
-tab1, tab2, tab3 = st.tabs(["Live Camera", "Upload Image", "Manual Check"])
+tab1, tab2, tab3 = st.tabs(["Camera", "Upload Image", "Manual Check"])
 
-# ------------------- TAB 1: LIVE CAMERA -------------------
+# ------------------- TAB 1: CAMERA -------------------
 with tab1:
-    st.subheader("Live Camera (Click to Capture)")
-
-    # Use Streamlit's built-in camera
+    st.subheader("Live Camera")
     picture = st.camera_input(
         "Point camera at license plate & click **Take Photo**",
-        help="Works in Chrome, Firefox, Safari on desktop & mobile"
+        help="Works on mobile & desktop"
     )
-
     if picture:
-        # Convert to OpenCV format
         file_bytes = np.asarray(bytearray(picture.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
         with st.spinner("Detecting plate..."):
             plate_img = detect_plate(image)
-
         if plate_img is not None:
             with st.spinner("Reading plate..."):
                 plate_text = read_plate(plate_img)
-
             if plate_text:
                 st.success(f"Detected Plate: **{plate_text}**")
-                st.image(plate_img, caption="Detected License Plate", use_container_width=True)
-
+                zoomable_image(plate_img, caption="Detected License Plate", zoom=True)
                 plate_data = DUMMY_DB.get(plate_text, None)
                 if plate_data:
                     status = plate_data["status"]
@@ -251,7 +229,6 @@ with tab1:
                         st.error("STOLEN VEHICLE")
                     else:
                         st.warning("EXPIRED LICENSE")
-
                     st.markdown(f"""
                     - **Owner**: {plate_data['owner']}
                     - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -259,6 +236,13 @@ with tab1:
                     - **Registration Date**: {plate_data['registration_date']}
                     - **Insurance**: {plate_data['insurance']}
                     """)
+                    if user_type == "Police Officer" and status == "STOLEN":
+                        st.button("Alert All Units", type="primary")
+                    elif user_type == "Police Officer" and status == "VALID":
+                        st.success("Insurance is ACTIVE")
+                    elif user_type == "Police Officer":
+                        st.error("Insurance EXPIRED")
+                        st.button("Issue Citation", type="primary")
                 else:
                     st.warning("Plate not in database")
             else:
@@ -271,28 +255,21 @@ with tab2:
     st.subheader("Upload Vehicle Image")
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png", "jpeg"])
     col1, col2 = st.columns(2)
-
     if uploaded_file:
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
         with col1:
             st.image(image, channels="BGR", caption="Uploaded Vehicle", use_container_width=True)
-
             if st.button("Scan License Plate"):
                 with st.spinner("Detecting plate..."):
                     plate_img = detect_plate(image)
-
                 if plate_img is not None:
-                    with st.spinner("Reading plate number..."):
+                    with st.spinner("Reading plate..."):
                         plate_text = read_plate(plate_img)
-
                     if plate_text:
                         st.success(f"Detected Plate: **{plate_text}**")
-                        st.image(plate_img, caption="Detected License Plate", use_container_width=True)
-
+                        zoomable_image(plate_img, caption="Detected License Plate", zoom=True)
                         plate_data = DUMMY_DB.get(plate_text, None)
-
                         with col2:
                             st.subheader("Registration Details")
                             if plate_data:
@@ -303,7 +280,6 @@ with tab2:
                                     st.error("STOLEN VEHICLE")
                                 else:
                                     st.warning("EXPIRED LICENSE")
-
                                 st.markdown(f"""
                                 - **Owner**: {plate_data['owner']}
                                 - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -311,7 +287,6 @@ with tab2:
                                 - **Registration Date**: {plate_data['registration_date']}
                                 - **Insurance**: {plate_data['insurance']}
                                 """)
-
                                 if user_type == "Police Officer":
                                     if status == "STOLEN":
                                         st.button("Alert All Units", type="primary")
@@ -321,11 +296,11 @@ with tab2:
                                         st.error("Insurance EXPIRED")
                                         st.button("Issue Citation", type="primary")
                             else:
-                                st.warning("Plate not found in database")
+                                st.warning("Plate not in database")
                                 if user_type == "DVLA Officer":
                                     if st.button("Add New Registration"):
                                         st.session_state.new_plate = plate_text
-                                        st.experimental_rerun()
+                                        st.rerun()
                     else:
                         st.error("Could not read plate text")
                 else:
@@ -334,7 +309,7 @@ with tab2:
 # ------------------- TAB 3: MANUAL CHECK -------------------
 with tab3:
     st.subheader("Manual Plate Check")
-    plate_input = st.text_input("Enter Plate Number (e.g. GE 351-19):").upper()
+    plate_input = st.text_input("Enter Plate Number (e.g. GE 351-19):").upper().strip()
     if plate_input:
         plate_data = DUMMY_DB.get(plate_input, None)
         if plate_data:
@@ -345,7 +320,6 @@ with tab3:
                 st.error("STOLEN VEHICLE")
             else:
                 st.warning("EXPIRED LICENSE")
-
             st.markdown(f"""
             - **Owner**: {plate_data['owner']}
             - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -353,7 +327,6 @@ with tab3:
             - **Registration Date**: {plate_data['registration_date']}
             - **Insurance**: {plate_data['insurance']}
             """)
-
             if user_type == "Police Officer":
                 if status == "STOLEN":
                     st.button("Alert All Units", type="primary")
@@ -367,8 +340,8 @@ with tab3:
             if user_type == "DVLA Officer":
                 if st.button("Add New Registration"):
                     st.session_state.new_plate = plate_input
-                    st.experimental_rerun()
+                    st.rerun()
 
 # ------------------- FOOTER -------------------
 st.markdown("---")
-st.caption(f"Ghana DVLA & Police System | {datetime.now().year} | Developed Ezer-Tech")
+st.caption(f"Ghana DVLA & Police System | {datetime.now().year} | Developed by Ezer-Tech")
