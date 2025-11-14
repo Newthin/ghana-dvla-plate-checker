@@ -198,90 +198,53 @@ tab1, tab2, tab3 = st.tabs(["Live Camera", "Upload Image", "Manual Check"])
 
 # ------------------- TAB 1: LIVE CAMERA -------------------
 with tab1:
-    st.subheader("Live Camera Feed")
+    st.subheader("Live Camera (Click to Capture)")
 
-    # Initialize session state safely
-    if 'webcam_active' not in st.session_state:
-        st.session_state.webcam_active = False
-    if 'cap' not in st.session_state:
-        st.session_state.cap = None
+    # Use Streamlit's built-in camera
+    picture = st.camera_input(
+        "Point camera at license plate & click **Take Photo**",
+        help="Works in Chrome, Firefox, Safari on desktop & mobile"
+    )
 
-    col1, col2 = st.columns(2)
+    if picture:
+        # Convert to OpenCV format
+        file_bytes = np.asarray(bytearray(picture.read()), dtype=np.uint8)
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    with col1:
-        if st.button("Start Webcam"):
-            st.session_state.cap = start_webcam()
-            st.session_state.webcam_active = True
-            st.success("Webcam activated!")
+        with st.spinner("Detecting plate..."):
+            plate_img = detect_plate(image)
 
-        if st.button("Stop Webcam"):
-            if st.session_state.cap is not None:
-                stop_webcam(st.session_state.cap)
-                st.session_state.webcam_active = False
-                st.session_state.cap = None
-                st.warning("Webcam stopped")
+        if plate_img is not None:
+            with st.spinner("Reading plate..."):
+                plate_text = read_plate(plate_img)
 
-    if st.session_state.webcam_active and st.session_state.cap is not None:
-        frame_placeholder = st.empty()
-        capture_button = st.button("Capture & Process")
+            if plate_text:
+                st.success(f"Detected Plate: **{plate_text}**")
+                st.image(plate_img, caption="Detected License Plate", use_container_width=True)
 
-        while st.session_state.webcam_active:
-            frame = capture_frame(st.session_state.cap)
-            if frame is not None:
-                frame_placeholder.image(frame, channels="BGR", caption="Live Camera Feed")
+                plate_data = DUMMY_DB.get(plate_text, None)
+                if plate_data:
+                    status = plate_data["status"]
+                    if status == "VALID":
+                        st.success("VALID LICENSE PLATE")
+                    elif status == "STOLEN":
+                        st.error("STOLEN VEHICLE")
+                    else:
+                        st.warning("EXPIRED LICENSE")
 
-            if capture_button:
-                if frame is not None:
-                    with st.spinner("Processing captured image..."):
-                        plate_img = detect_plate(frame)
-
-                        if plate_img is not None:
-                            plate_text = read_plate(plate_img)
-
-                            if plate_text:
-                                st.success(f"Detected Plate: **{plate_text}**")
-                                st.image(plate_img, caption="Detected License Plate", use_container_width=True)
-
-                                plate_data = DUMMY_DB.get(plate_text, None)
-
-                                with col2:
-                                    st.subheader("Registration Details")
-                                    if plate_data:
-                                        status = plate_data["status"]
-                                        if status == "VALID":
-                                            st.success("VALID LICENSE PLATE")
-                                        elif status == "STOLEN":
-                                            st.error("STOLEN VEHICLE")
-                                        else:
-                                            st.warning("EXPIRED LICENSE")
-
-                                        st.markdown(f"""
-                                        - **Owner**: {plate_data['owner']}
-                                        - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
-                                        - **Color**: {plate_data['color']}
-                                        - **Registration Date**: {plate_data['registration_date']}
-                                        - **Insurance**: {plate_data['insurance']}
-                                        """)
-
-                                        if user_type == "Police Officer":
-                                            if status == "STOLEN":
-                                                st.button("Alert All Units", type="primary")
-                                            elif status == "VALID":
-                                                st.success("Insurance is ACTIVE")
-                                            else:
-                                                st.error("Insurance EXPIRED")
-                                                st.button("Issue Citation", type="primary")
-                                    else:
-                                        st.warning("Plate not found in database")
-                                        if user_type == "DVLA Officer":
-                                            if st.button("Add New Registration"):
-                                                st.session_state.new_plate = plate_text
-                                                st.experimental_rerun()
-                            else:
-                                st.error("Could not read plate text")
-                        else:
-                            st.error("No license plate detected")
-                break
+                    st.markdown(f"""
+                    - **Owner**: {plate_data['owner']}
+                    - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
+                    - **Color**: {plate_data['color']}
+                    - **Registration Date**: {plate_data['registration_date']}
+                    - **Insurance**: {plate_data['insurance']}
+                    """)
+                else:
+                    st.warning("Plate not in database")
+            else:
+                st.error("Could not read plate text")
+        else:
+            st.error("No license plate detected")
 
 # ------------------- TAB 2: UPLOAD IMAGE -------------------
 with tab2:
