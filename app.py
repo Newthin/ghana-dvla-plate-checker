@@ -1,4 +1,24 @@
 import streamlit as st
+
+# === PWA: ENABLE INSTALL + CAMERA + ZOOM ===
+st.markdown("""
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<meta name="theme-color" content="#1E90FF">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+""", unsafe_allow_html=True)
+
+# Optional: Force PWA mode
+st.markdown("""
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js');
+    });
+  }
+</script>
+""", unsafe_allow_html=True)
+
 import cv2
 import numpy as np
 import easyocr
