@@ -167,7 +167,6 @@ def read_plate(plate_img):
 # STREAMLIT UI
 # =====================
 st.title("🇬🇭 Ghana DVLA & Police Plate Verification")
-st.markdown("---**Install: Open in Chrome → 3-dots → Add to Home Screen**")
 
 user_type = st.radio("Login As:", ["DVLA Officer", "Police Officer"], horizontal=True)
 
