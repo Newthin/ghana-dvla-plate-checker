@@ -7,7 +7,7 @@ from ultralytics import YOLO
 import pandas as pd
 import re
 
-# === PWA: FULL SUPPORT (Manifest, Icons, Service Worker, Install Button) ===
+# === PWA: CORE SUPPORT (Manifest + Icons + Service Worker) ===
 st.set_page_config(
     page_title="DVLA Scan",
     page_icon="icon-192.png",
@@ -22,46 +22,9 @@ st.markdown("""
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 """, unsafe_allow_html=True)
 
-# Register service worker
+# Register service worker (HTML only, no script — avoids React error)
 st.markdown("""
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js');
-    });
-  }
-</script>
-""", unsafe_allow_html=True)
-
-# === PWA: INSTALL BUTTON (DEBUG) ===
-st.markdown("""
-<button id="installBtn" style="padding:12px 20px; background:#1E90FF; color:white; border:none; border-radius:8px; font-weight:bold; margin:10px 0;" onclick="installApp()">
-  Install DVLA Scanner
-</button>
-<script>
-  let deferredPrompt;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    console.log('PWA installable!');
-    e.preventDefault();
-    deferredPrompt = e;
-    document.getElementById("installBtn").style.display = "block";
-  });
-
-  function installApp() {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then(() => {
-        document.getElementById("installBtn").style.display = "none";
-      });
-    } else {
-      alert("PWA not ready. Try hard refresh.");
-    }
-  }
-
-  // Debug: Check if files load
-  fetch('/manifest.json').then(r => console.log('manifest:', r.ok));
-  fetch('/icon-192.png').then(r => console.log('icon:', r.ok));
-</script>
+<script src="/service-worker.js"></script>
 """, unsafe_allow_html=True)
 
 # =====================
@@ -190,12 +153,8 @@ def read_plate(plate_img):
         thresh = cv2.equalizeHist(thresh)
         results = reader.readtext(thresh, detail=0, paragraph=False)
         raw_text = " ".join(results).strip()
-
-        # Optional: Remove in production
-        # st.write(f"**Raw OCR:** `{raw_text}`")
         cleaned = clean_ghana_plate(raw_text)
         if cleaned:
-            # st.write(f"**Cleaned Plate:** `{cleaned}`")
             return cleaned
         else:
             st.warning("Could not parse plate format")
@@ -207,12 +166,12 @@ def read_plate(plate_img):
 # =====================
 # STREAMLIT UI
 # =====================
-st.title("Ghana DVLA & Police Plate Verification")
-st.markdown("---")
+st.title("🇬🇭 Ghana DVLA & Police Plate Verification")
+st.markdown("---**Install: Open in Chrome → 3-dots → Add to Home Screen**")
 
 user_type = st.radio("Login As:", ["DVLA Officer", "Police Officer"], horizontal=True)
 
-tab1, tab2, tab3 = st.tabs(["Camera", "Upload Image", "Manual Check"])
+tab1, tab2, tab3 = st.tabs(["📷 Camera", "📁 Upload Image", "🔍 Manual Check"])
 
 # ------------------- TAB 1: CAMERA -------------------
 with tab1:
@@ -236,11 +195,11 @@ with tab1:
                 if plate_data:
                     status = plate_data["status"]
                     if status == "VALID":
-                        st.success("VALID LICENSE PLATE")
+                        st.success("✅ VALID LICENSE PLATE")
                     elif status == "STOLEN":
-                        st.error("STOLEN VEHICLE")
+                        st.error("🚨 STOLEN VEHICLE")
                     else:
-                        st.warning("EXPIRED LICENSE")
+                        st.warning("⚠️ EXPIRED LICENSE")
                     st.markdown(f"""
                     - **Owner**: {plate_data['owner']}
                     - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -248,13 +207,14 @@ with tab1:
                     - **Registration Date**: {plate_data['registration_date']}
                     - **Insurance**: {plate_data['insurance']}
                     """)
-                    if user_type == "Police Officer" and status == "STOLEN":
-                        st.button("Alert All Units", type="primary")
-                    elif user_type == "Police Officer" and status == "VALID":
-                        st.success("Insurance is ACTIVE")
-                    elif user_type == "Police Officer":
-                        st.error("Insurance EXPIRED")
-                        st.button("Issue Citation", type="primary")
+                    if user_type == "Police Officer":
+                        if status == "STOLEN":
+                            st.button("🚨 Alert All Units", type="primary")
+                        elif status == "VALID":
+                            st.success("✅ Insurance ACTIVE")
+                        else:
+                            st.error("❌ Insurance EXPIRED")
+                            st.button("Issue Citation", type="primary")
                 else:
                     st.warning("Plate not in database")
             else:
@@ -272,7 +232,7 @@ with tab2:
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         with col1:
             st.image(image, channels="BGR", caption="Uploaded Vehicle", use_container_width=True)
-            if st.button("Scan License Plate"):
+            if st.button("🚔 Scan License Plate"):
                 with st.spinner("Detecting plate..."):
                     plate_img = detect_plate(image)
                 if plate_img is not None:
@@ -283,15 +243,15 @@ with tab2:
                         zoomable_image(plate_img, caption="Detected License Plate", zoom=True)
                         plate_data = DUMMY_DB.get(plate_text, None)
                         with col2:
-                            st.subheader("Registration Details")
+                            st.subheader("📋 Registration Details")
                             if plate_data:
                                 status = plate_data["status"]
                                 if status == "VALID":
-                                    st.success("VALID LICENSE PLATE")
+                                    st.success("✅ VALID LICENSE PLATE")
                                 elif status == "STOLEN":
-                                    st.error("STOLEN VEHICLE")
+                                    st.error("🚨 STOLEN VEHICLE")
                                 else:
-                                    st.warning("EXPIRED LICENSE")
+                                    st.warning("⚠️ EXPIRED LICENSE")
                                 st.markdown(f"""
                                 - **Owner**: {plate_data['owner']}
                                 - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -301,16 +261,16 @@ with tab2:
                                 """)
                                 if user_type == "Police Officer":
                                     if status == "STOLEN":
-                                        st.button("Alert All Units", type="primary")
+                                        st.button("🚨 Alert All Units", type="primary")
                                     elif status == "VALID":
-                                        st.success("Insurance is ACTIVE")
+                                        st.success("✅ Insurance ACTIVE")
                                     else:
-                                        st.error("Insurance EXPIRED")
+                                        st.error("❌ Insurance EXPIRED")
                                         st.button("Issue Citation", type="primary")
                             else:
                                 st.warning("Plate not in database")
                                 if user_type == "DVLA Officer":
-                                    if st.button("Add New Registration"):
+                                    if st.button("➕ Add New Registration"):
                                         st.session_state.new_plate = plate_text
                                         st.rerun()
                     else:
@@ -327,11 +287,11 @@ with tab3:
         if plate_data:
             status = plate_data["status"]
             if status == "VALID":
-                st.success("VALID LICENSE PLATE")
+                st.success("✅ VALID LICENSE PLATE")
             elif status == "STOLEN":
-                st.error("STOLEN VEHICLE")
+                st.error("🚨 STOLEN VEHICLE")
             else:
-                st.warning("EXPIRED LICENSE")
+                st.warning("⚠️ EXPIRED LICENSE")
             st.markdown(f"""
             - **Owner**: {plate_data['owner']}
             - **Vehicle**: {plate_data['make']} {plate_data['model']} ({plate_data['year']})
@@ -341,19 +301,19 @@ with tab3:
             """)
             if user_type == "Police Officer":
                 if status == "STOLEN":
-                    st.button("Alert All Units", type="primary")
+                    st.button("🚨 Alert All Units", type="primary")
                 elif status == "VALID":
-                    st.success("Insurance is ACTIVE")
+                    st.success("✅ Insurance ACTIVE")
                 else:
-                    st.error("Insurance EXPIRED")
+                    st.error("❌ Insurance EXPIRED")
                     st.button("Issue Citation", type="primary")
         else:
-            st.warning("Plate not found in database")
+            st.warning("Plate not in database")
             if user_type == "DVLA Officer":
-                if st.button("Add New Registration"):
+                if st.button("➕ Add New Registration"):
                     st.session_state.new_plate = plate_input
                     st.rerun()
 
 # ------------------- FOOTER -------------------
 st.markdown("---")
-st.caption(f"Ghana DVLA & Police System | {datetime.now().year} | Developed by Ezer-Tech")
+st.caption(f"🇬🇭 Ghana DVLA & Police System | {datetime.now().year} | Developed by Ezer-Tech")
